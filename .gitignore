@@ -1,0 +1,8 @@
+# never publish: keys, downloaded model files, saved vectors, local environments, run outputs
+.env
+.cache/
+.venv/
+__pycache__/
+*.pyc
+results/
+.DS_Store

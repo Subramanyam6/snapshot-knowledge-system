@@ -1,0 +1,6 @@
+# Pinned to the versions the results in README.md were measured with.
+# Answering with the language model: needs ANTHROPIC_API_KEY (see NOTES.md).
+anthropic==2.7.0; python_version >= "3.10"
+# Search by meaning (the "second look"): a small embedding model that runs locally.
+# Optional. If it cannot be installed, delete this line: the system then searches by keywords only.
+fastembed==0.9.1; python_version >= "3.10"
