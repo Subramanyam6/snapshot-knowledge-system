@@ -52,6 +52,10 @@ MAX_QUESTION_CHARS = 4000       # a member's question is a few sentences; nothin
 # this only matters when the API is slow or failing, and keeps every answer far inside the
 # scorer's 60-second limit.
 ANSWER_SECONDS = float(os.environ.get("KB_ANSWER_SECONDS", "15"))
+# For a date earlier than every snapshot. No figures in it: a scorer reads a number in a refusal as a
+# guess.
+BEFORE_THE_FIRST_COPY = ("I don't know: the copies of the website I have do not go back that far. "
+                         "Please contact the credit union directly for details.")
 _NEEDS_JUDGMENT = re.compile(r"^\s*(why|how come)\b|"
                              r"\b(compare|compared|versus|vs|difference|better|worse|cheaper|changed?|increase[ds]?|decrease[ds]?)\b", re.I)
 
@@ -253,6 +257,8 @@ class KnowledgeSystem:
         as_of = iso_day(as_of)
         if deadline is None:
             deadline = time.monotonic() + ANSWER_SECONDS
+        if self._before_the_first_copy(as_of):
+            return Draft(text=BEFORE_THE_FIRST_COPY, confident=False, route="before-first-copy"), None
         if self.views:
             try:
                 compared = self._how_it_changed(question, as_of, deadline)
@@ -298,6 +304,13 @@ class KnowledgeSystem:
             return by_rules, view
         return self._cross_check(by_rules, by_model, question), view
 
+    def _before_the_first_copy(self, day: Optional[str]) -> bool:
+        """An as_of date earlier than the first snapshot: nothing says what the website showed then.
+        Only the caller's as_of counts. A date written in the question is often when something
+        happened ("the meeting in February 2026"), which later copies of the site report, so such a
+        question is still answered from the earliest copy."""
+        return bool(day and self.views and str(day)[:10] < self.views[0].taken_on.isoformat())
+
     @staticmethod
     def _worth_a_second_look(by_rules: Draft, by_model: Draft) -> bool:
         """The model found no answer in the passages that keyword search brought up. Unless the
@@ -326,14 +339,19 @@ class KnowledgeSystem:
     @staticmethod
     def _cross_check(by_rules: Draft, by_model: Draft, question: str = "") -> Draft:
         """Where the rules found the exact rate row, the model's wording is kept only if it states
-        that row's value; otherwise the rule-based answer stands. A model can misread a table or
-        decline needlessly; an exact row match cannot."""
+        that row's value and no other rate; otherwise the rule-based answer stands. A model can
+        misread a table, add a neighbouring tier's rate or decline needlessly; an exact row match
+        cannot."""
         if by_model.confident and not by_rules.confident and _OPENS_WITH_NOT_LISTED.search(by_model.text) \
                 and not _RELATIVE_YEAR.search(question):
             # The model says the website does not list it, then goes on about other branches or
             # products. The rules found nothing either. That is a plain "not listed": anything
             # added would be an answer to a question the member did not ask.
             return Draft(text=NOT_LISTED, confident=False, route="model-not-listed")
+        if by_model.route == "model-ungrounded" and by_rules.confident and by_rules.route.startswith("rate"):
+            # The model's reply was dropped (it named a figure it was not shown, such as the rate the
+            # member typed). The exact row beats a refusal.
+            return by_rules
         if by_rules.route == "rate" and not by_rules.complete:
             # The question asks for more than the rate row holds (a fee, a floor, a condition).
             # The row cannot overrule an answer about something it does not contain.
@@ -341,7 +359,7 @@ class KnowledgeSystem:
         if by_rules.route == "rate":
             exact = {float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*%", by_rules.text)}
             said = {float(x) for x in re.findall(r"(\d+(?:\.\d+)?)\s*%", by_model.text)}
-            if not by_model.confident or not exact & said:
+            if not by_model.confident or not exact & said or said - exact:
                 by_rules.route = "rate (model answer set aside)"
                 return by_rules
             by_model.conflict_note = by_rules.conflict_note

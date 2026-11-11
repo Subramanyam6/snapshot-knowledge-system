@@ -82,7 +82,8 @@ anything is indexed: the stale table, its fine print and the sentences that quot
 ### 2. Route the question
 
 - **Which snapshot.** No date: the newest. An `as_of` date (or "as of May 2026" in a question that
-  looks back): the last snapshot on or before it.
+  looks back): the last snapshot on or before it. An `as_of` date before the first snapshot gets an
+  honest "I don't know", since nothing says what the site showed then.
 - **Rules first.** A rate look-up whose matched table accounts for every word of the question, a
   yes/no about a stated percentage, "which page shows the ... rates", branch hours and addresses.
   No model call, a few milliseconds, the same words every time.
@@ -97,8 +98,11 @@ anything is indexed: the stale table, its fine print and the sentences that quot
 
 ### 3. Checks in code
 
-- Every number in a model answer must appear in what the model was shown, or the answer is dropped.
-- Where the rules found the exact rate row, the model's answer must state that row's value.
+- Every number in a model answer must appear in what the model was shown, or the answer is dropped
+  (and the rate row the rules found answers instead, if there is one). A rate the member typed in
+  the question does not count as shown.
+- Where the rules found the exact rate row for the whole question, the model's answer must state that
+  row's value and no other rate; otherwise the rules answer stands.
 - An answer that breaks off, or answers a different question, is asked for once more.
 - "The website doesn't list X, but here are other things" becomes a plain "not listed", which is
   what the scorer expects for a question the site cannot answer.
@@ -184,8 +188,11 @@ judgement.
   scripts), a fake API that fails in every way it can, a fresh install on Python 3.11, and a check of
   everything that would become public. It found real problems, all fixed: a pattern that took over a
   minute on very long questions, no overall time limit per answer, loan-amount questions that listed
-  every tier containing the amount, and a year in the question ("in 2026") hiding a listed rate.
-- **Unit tests** (87 of them) on small made-up pages, so they run in a second with no snapshots and
+  every tier containing the amount, and a year in the question ("in 2026") hiding a listed rate. A
+  last independent review found three more, also fixed: a yes/no check that took a dividend rate for
+  the APY asked about, two answer checks that were looser than described here, and `as_of` dates
+  before the first snapshot answered from it.
+- **Unit tests** (91 of them) on small made-up pages, so they run in a second with no snapshots and
   no key (the packages in `requirements.txt` installed).
 
 What the bank caught that the practice set had hidden, each fixed in a general way rather than by

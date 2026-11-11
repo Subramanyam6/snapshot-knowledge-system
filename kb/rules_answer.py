@@ -52,6 +52,28 @@ _WANTS_LINK = re.compile(r"\b(link|url|web ?site|web ?page|web ?address|internet
 # The address a site uses when it points at a page's rate table: ".../savings-account#rates".
 _RATES_ANCHOR = re.compile(r"(https?://[^\s)\"'<>\]#]+?)/?#(?:\w+-)*rates?(?:-\w+)*\b", re.I)
 _HEADLINE_METRICS = ("APY", "APR", "rate", "dividend rate")
+# The kinds of rate a member can attach to a figure, matched against the start of a column's metric
+# name. A bare "dividends" is left out: "pays 3.40% in dividends" usually means the yield.
+_NAMED_METRIC = (("APY", r"apy|annual percentage yield"), ("APR", r"apr|annual percentage rate"),
+                 ("dividend rate", r"dividend rate"))
+_FIGURE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:%|percent\b)", re.I)
+
+
+def _kind_of_figure(question: str, target: float) -> Optional[str]:
+    """The kind of rate the member attached to the figure asked about: "3.96% APY", "an APY of
+    3.96%", "is 3.96% the APY". None when the figure stands alone; in "6.75% with a 6.88% APR" the
+    APR belongs to the second figure, not the first."""
+    for m in _FIGURE.finditer(question):
+        if abs(float(m.group(1)) - target) > 1e-9:
+            continue
+        after = re.split(r"\d", question[m.end():m.end() + 40])[0]          # up to the next figure
+        before = re.split(r"\d", question[max(0, m.start() - 30):m.start()])[-1]
+        for kind, pattern in _NAMED_METRIC:
+            if re.match(r"\s*(?:the\s+|an?\s+)?(?:%s)\b" % pattern, after, re.I) \
+                    or re.search(r"\b(?:%s)\s*(?:of|is|at|was|=)?\s*$" % pattern, before, re.I):
+                return kind
+        return None
+    return None
 _LOBBY = re.compile(r"\blobby\b", re.I)
 _DRIVE_UP = re.compile(r"\bdrive[- ]?(?:up|thru|through)\b", re.I)
 _ADDRESS_QUESTION = re.compile(r"\b(address(?:es)?|located|locations?|where|directions)\b", re.I)
@@ -222,7 +244,7 @@ class RulesAnswerer:
             return Draft(text=NOT_LISTED, confident=False, route="rate-not-listed")
         if asked.percents and is_yes_no(question):
             sources, note = self._backing(keep)
-            return Draft(text=self._yes_or_no(keep, asked), sources=sources, confident=True, conflict_note=note,
+            return Draft(text=self._yes_or_no(keep, asked, question), sources=sources, confident=True, conflict_note=note,
                          route="rate-yes-no", matched=list(keep))
         if _WANTS_LINK.search(question):
             return self._where_listed(keep, asked)
@@ -295,22 +317,33 @@ class RulesAnswerer:
         ordered = [(u, q) for u, q in sources if u in first] + [(u, q) for u, q in sources if u not in first]
         return ordered[:MAX_SOURCES], "; ".join(dict.fromkeys(notes)) or None
 
-    def _yes_or_no(self, keep: Sequence[Match], asked: Asked) -> str:
+    def _yes_or_no(self, keep: Sequence[Match], asked: Asked, question: str = "") -> str:
         """'Is 0.42% paid on any savings tier?' is settled by the rows themselves. A "no" says
-        what the rows do pay; it does not repeat the figure asked about, which may be an old one."""
+        what the rows do pay; it does not repeat the figure asked about, which may be an old one.
+        When the question names the kind of rate ("3.96% APY"), only that column counts: a row
+        paying a 3.96% dividend rate and a 4.00% APY does not pay 3.96% APY."""
         target = asked.percents[0]
-        hits = ["%s, %s" % (m.table.name, _row_text(row, name=m.table.name)) for m in keep for row in m.rows[:MAX_ROWS]
-                if any(abs(n - target) < 1e-9 for numbers in row.numbers.values() for n in numbers)]
+        kind = _kind_of_figure(question, target)
+        if kind and not any(metric.startswith(kind) for m in keep for row in m.rows[:MAX_ROWS] for metric in row.numbers):
+            kind = None                     # a kind these rows do not have (an APR on a savings account): read them all
+
+        def pays(row) -> bool:
+            return any(abs(n - target) < 1e-9 for metric, numbers in row.numbers.items()
+                       if kind is None or metric.startswith(kind) for n in numbers)
+        hits = ["%s, %s" % (m.table.name, _row_text(row, name=m.table.name)) for m in keep for row in m.rows[:MAX_ROWS] if pays(row)]
         if hits:
             return "Yes. %s." % "; ".join(hits[:4])
         mine = [m for m in keep if "business" in asked.flags or "business" not in m.rows[0].key.flags] or list(keep)
-        return "No. " + " ".join(self._span(m) for m in mine[:MAX_TABLES])
+        return "No. " + " ".join(self._span(m, kind) for m in mine[:MAX_TABLES])
 
     @staticmethod
-    def _span(match: Match) -> str:
-        """What one table pays, in a sentence: 'Share Savings: 0.00% to 0.20% APY (0.20% for $25,000+).'"""
+    def _span(match: Match, kind: Optional[str] = None) -> str:
+        """What one table pays, in a sentence: 'Share Savings: 0.00% to 0.20% APY (0.20% for $25,000+).'
+        `kind` picks the column the member asked about (a "No" to "a 4.00% dividend rate?" gives the
+        dividend rate); otherwise the headline column."""
         rows, name = match.rows[:MAX_ROWS], match.table.name
-        metric = next((m for m in _HEADLINE_METRICS if any(m in r.numbers for r in rows)), None)
+        metric = next((k for r in rows for k in r.numbers if k.startswith(kind)), None) if kind else None
+        metric = metric or next((m for m in _HEADLINE_METRICS if any(m in r.numbers for r in rows)), None)
         having = [r for r in rows if metric in r.numbers and len(r.numbers[metric]) == 1]
         if metric is None or len(having) != len(rows):
             return "%s: %s." % (name, "; ".join(_row_text(r, name=name) for r in rows))       # ranges or mixed columns: read the rows out

@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))          # for test_ans
 from kb.conflicts import _a_real_figure  # noqa: E402
 from kb.history import comparison  # noqa: E402
 from kb.lookup import read_question  # noqa: E402
-from kb.system import _OPENS_WITH_NOT_LISTED, date_in_question, iso_day  # noqa: E402
+from kb.rules_answer import Draft  # noqa: E402
+from kb.system import _OPENS_WITH_NOT_LISTED, KnowledgeSystem, date_in_question, iso_day  # noqa: E402
 from test_answers import RATES, SAVINGS_PAGE, answerer, raw, system_without_models  # noqa: E402
 
 
@@ -51,6 +52,17 @@ class Dates(unittest.TestCase):
         self.assertEqual(date_in_question("What was the rate in June 2026?"), "2026-06-30")
 
 
+class BeforeTheFirstCopy(unittest.TestCase):
+    def test_an_as_of_date_before_the_first_snapshot_gets_an_honest_i_dont_know(self):
+        system = rules_only_system()
+        early = system.answer("What is the APY on the 13-month certificate special?", as_of="2026-01-15")
+        self.assertFalse(early.confident)
+        self.assertNotRegex(early.text, r"\d")                # a number in a refusal reads as a guess
+        # A date in the question may be when something happened, which later copies report.
+        self.assertTrue(system.answer("What was the APY on the 13-month certificate special in January 2026?").confident)
+        self.assertTrue(system.answer("What is the APY on the 13-month certificate special?", as_of="2026-05-12").confident)
+
+
 class Spacing(unittest.TestCase):
     def test_extra_spaces_and_line_breaks_change_nothing(self):
         system = rules_only_system()
@@ -70,6 +82,24 @@ class RateQuestions(unittest.TestCase):
         text = self.rules.answer("What is the 30-year purchase APR for a $250,000 mortgage?").text
         self.assertIn("6.71%", text)
         self.assertNotIn("6.66%", text)
+
+    def test_a_yes_no_about_a_named_kind_of_rate_checks_that_column_only(self):
+        no = self.rules.answer("Does the 13-month jumbo certificate special pay 4.27% APY?")
+        self.assertEqual(no.route, "rate-yes-no")
+        self.assertTrue(no.text.startswith("No."), no.text)      # 4.27% is its dividend rate, not its APY
+        self.assertIn("4.35%", no.text)
+        self.assertTrue(self.rules.answer("Does the 13-month jumbo certificate special pay 4.35% APY?").text.startswith("Yes."))
+        self.assertTrue(self.rules.answer("Does the 13-month jumbo certificate special pay 4.27%?").text.startswith("Yes."))
+
+    def test_the_kind_of_rate_belongs_to_the_figure_it_is_attached_to(self):
+        two = self.rules.answer("Is the 30-year fixed purchase mortgage for $120,000 or less 6.48% with a 6.66% APR?")
+        self.assertTrue(two.text.startswith("Yes."), two.text)   # the APR belongs to 6.66%, not to 6.48%
+        # A kind of rate the product does not have (an APR on a certificate) is a slip of the tongue.
+        self.assertTrue(self.rules.answer("Does the 13-month jumbo certificate special pay 4.35% APR?").text.startswith("Yes."))
+        self.assertTrue(self.rules.answer("Does the 13-month jumbo certificate special pay 4.35% in dividends?").text.startswith("Yes."))
+        no = self.rules.answer("Does the 13-month jumbo certificate special pay a 4.35% dividend rate?").text
+        self.assertTrue(no.startswith("No."), no)
+        self.assertIn("4.27% dividend rate", no)                  # the "no" names the column asked about
 
     def test_a_year_named_as_a_time_does_not_hide_the_product(self):
         self.assertEqual(read_question("What is the 12-month certificate APY in 2026?").other_numbers, [])
@@ -107,6 +137,24 @@ class NotListedWording(unittest.TestCase):
         for text in ("The account does not have a monthly fee.",
                      "Yes. Members do not have to pay for the first box of checks."):
             self.assertFalse(_OPENS_WITH_NOT_LISTED.search(text), text)
+
+
+class RateCrossCheck(unittest.TestCase):
+    def test_a_model_answer_with_a_second_rate_beside_the_rows_is_set_aside(self):
+        def rules():
+            return Draft(text="Certificate Rate Specials, 13 Month Fixed Certificate Special: 4.18% dividend rate, 4.25% APY.",
+                         route="rate", complete=True)
+        good = Draft(text="The 13-month special pays 4.25% APY.", route="model")
+        mixed = Draft(text="The 13-month special pays 4.25% APY, up from 4.10%.", route="model")
+        self.assertIs(KnowledgeSystem._cross_check(rules(), good, "q"), good)
+        kept = rules()
+        self.assertIs(KnowledgeSystem._cross_check(kept, mixed, "q"), kept)
+
+    def test_a_dropped_model_answer_gives_way_to_the_rate_row_not_a_refusal(self):
+        partial = Draft(text="Certificate Rate Specials, 13 Month Fixed Certificate Special: 4.25% APY.",
+                        route="rate", complete=False)
+        dropped = Draft(text="I'm sorry, the website doesn't list that.", confident=False, route="model-ungrounded")
+        self.assertIs(KnowledgeSystem._cross_check(partial, dropped, "I heard it pays 4.10%, what does it pay?"), partial)
 
 
 class ContradictionFigures(unittest.TestCase):
@@ -154,6 +202,15 @@ class ModelCall(unittest.TestCase):
         for broken in ("no json here", "[1, 2]", "{broken"):
             with self.assertRaises(ValueError):
                 parse(broken)
+
+    def test_a_rate_typed_in_the_question_is_not_evidence_for_itself(self):
+        r = self.reader_module
+        user = "PASSAGES\n[P1] The APY is 5.39%.\n\nQUESTION: Is it still 5.34% on a $20,000 loan for a 2019 car?"
+        shown = r.material_shown(user)
+        self.assertEqual(r.ungrounded_numbers("Yes, it is still 5.34%.", shown), ["5.34%"])
+        self.assertEqual(r.ungrounded_numbers("No, it is 5.39% APY for a $20,000 loan on a 2019 car.", shown), [])
+        bare = r.material_shown("PASSAGES\n[P1] The APR is 5.39%.\n\nQUESTION: Is it still 5.34 APR?")
+        self.assertEqual(r.ungrounded_numbers("Yes, it is still 5.34% APR.", bare), ["5.34%"])
 
     def test_last_year_gets_a_reminder_that_names_the_year(self):
         view = SimpleNamespace(taken_on=__import__("datetime").date(2026, 9, 28))

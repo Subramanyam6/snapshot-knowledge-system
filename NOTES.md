@@ -19,14 +19,17 @@ promotions; an expired promotion never counts); then the more recent download. T
 rate only when product, variant (business, Roth, jumbo...), term, balance or loan-amount tier and
 model-year band all match, so different tiers are never treated as a contradiction. For figures
 repeated across dated articles (staff or branch counts), the most recently published one wins. A
-question with an `as_of` date is answered from the last snapshot on or before that date.
+question with an `as_of` date is answered from the last snapshot on or before that date; one dated
+before the first snapshot gets "I don't know".
 
 **Answering.** Rules answer what they can settle exactly: rate look-ups, yes/no questions about a
 stated rate, rate-page links, branch hours and addresses. Everything else goes to a small language
 model (one call, a second only if the reply is unusable), which reads a fact sheet of current values
 plus passages found by keyword search. A second look, with passages found by meaning, runs at the
-same time and is used only when the first finds nothing. The model's reply is checked in code: every number
-must appear in what it was shown, and a rate must match the row the rules found. A question plainly
+same time and is used only when the first finds nothing. The model's reply is checked in code:
+every number must appear in what it was shown (a rate the member typed does not count), and where the
+rules found the exact rate row for the whole question, the reply must state that row's value and no
+other rate. A question plainly
 about a change ("how has ... changed since May 12, 2026?") is answered from two snapshots.
 `conflicts()` lists every contradiction found while cleaning, with all its values, the winner and the
 reason.

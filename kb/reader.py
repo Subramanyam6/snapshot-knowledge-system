@@ -156,6 +156,18 @@ def on_topic(question: str, answer: str, relied_on: List[str], site_words=frozen
         return True
 
 
+_TYPED_RATE = re.compile(r"\d[\d,]*(?:\.\d+)?\s*(?:%|percent\b|per\s+cent\b|(?=(?:APR|APY)\b))", re.I)
+
+
+def material_shown(user: str) -> str:
+    """The prompt, as evidence for the numbers in an answer. A rate the member typed in the
+    question is not evidence for itself: "Is it still 5.34%?" must not let the model repeat 5.34%.
+    Other numbers in the question (a balance, a loan amount, a model year) still count, since an
+    answer may name the amount it was asked about."""
+    before, marker, asked = user.rpartition("QUESTION: ")
+    return before + _TYPED_RATE.sub(" ", asked) if marker else user
+
+
 def ungrounded_numbers(answer: str, shown: str) -> List[str]:
     """Numbers in the answer that appear nowhere in the material the model was shown. Small whole
     numbers without a unit are exempt: 'two branches' or '3 options' is counting, not quoting."""
@@ -459,7 +471,7 @@ class Reader:
                     raise ValueError("model returned an unfinished answer")
                 return Draft(text=NOT_LISTED, confident=False, route="model-off-topic")
             user = "%s\n\n%s" % (user, problem)
-        missing = ungrounded_numbers(text, sheet_text + "\n" + user)
+        missing = ungrounded_numbers(text, sheet_text + "\n" + material_shown(user))
         if missing:
             return Draft(text=NOT_LISTED, confident=False, route="model-ungrounded",
                          conflict_note="discarded an answer containing %s, which the website material does not show" % ", ".join(missing))
