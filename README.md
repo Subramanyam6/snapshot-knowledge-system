@@ -32,8 +32,9 @@ only the cleaned site, and its answer is checked in code before it is returned.
 | Contradictions list | 47 entries; all 7 contradictions the practice questions point at are listed, with the right winner |
 
 *Fully right*: every value the question requires is in the answer, and no out-of-date value is. One
-practice question (and the bank's rewordings of it) has no required values, so the scorer cannot
-mark it; the counts leave it out. *Live*: with real model calls, not replayed ones.
+practice question (and the bank's four rewordings of it) has no required values, so the scorer gives
+it 0 whatever the answer; it counts double, and that alone is why accuracy is 0.97 rather than 1.00.
+The counts leave it out. *Live*: with real model calls, not replayed ones.
 
 Why I trust the bank numbers more than the practice score, and the one way the held-back half stopped
 being blind, are under [How I tested it](#how-i-tested-it).
@@ -41,7 +42,7 @@ being blind, are under [How I tested it](#how-i-tested-it).
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     S[Five snapshots] --> C[Clean: decide what is current,<br/>delete what lost]
     C --> V[One cleaned view per date]
     Q[Question + as_of] --> H{Plainly about<br/>a change?}
@@ -162,7 +163,8 @@ judgement.
   organisers' scorer marks: values that must appear, and out-of-date values that must not. Each
   key was then checked by answering its question independently, without seeing the key, and every
   disagreement was audited; 22 of 487 items were dropped as arguable. The rest was split in two by
-  a fixed rule. I fixed things against one half only and used the other half to confirm: 227 of 232
+  a fixed rule, into halves of 233 and 232 (the four unmarkable rewordings sit in the first, hence
+  229 in the table). I fixed things against one half only and used the other half to confirm: 227 of 232
   at first look, 230 after the general fixes made against the first half. One exception, in the
   open: the speed change described above cost four held-back answers, all of two kinds, and the fix
   for it was made with those questions in view. Held-back results after that are no longer blind

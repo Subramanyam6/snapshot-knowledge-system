@@ -4,3 +4,5 @@ anthropic==2.7.0; python_version >= "3.10"
 # Search by meaning (the "second look"): a small embedding model that runs locally.
 # Optional. If it cannot be installed, delete this line: the system then searches by keywords only.
 fastembed==0.9.1; python_version >= "3.10"
+# Installed with fastembed anyway; listed because the code imports it directly.
+numpy; python_version >= "3.10"
