@@ -91,6 +91,13 @@ class RateQuestions(unittest.TestCase):
         self.assertTrue(self.rules.answer("Does the 13-month jumbo certificate special pay 4.35% APY?").text.startswith("Yes."))
         self.assertTrue(self.rules.answer("Does the 13-month jumbo certificate special pay 4.27%?").text.startswith("Yes."))
 
+    def test_a_no_about_a_mortgage_rate_gives_the_interest_rates_too(self):
+        no = self.rules.answer("Is the 30-year fixed purchase mortgage rate still 5.95%?").text
+        self.assertTrue(no.startswith("No."), no)
+        for value in ("6.48%", "6.62%", "6.66%", "6.71%"):      # both tiers' rates and APRs
+            self.assertIn(value, no)
+        self.assertNotIn("5.95", no)                            # the figure asked about is not repeated
+
     def test_the_kind_of_rate_belongs_to_the_figure_it_is_attached_to(self):
         two = self.rules.answer("Is the 30-year fixed purchase mortgage for $120,000 or less 6.48% with a 6.66% APR?")
         self.assertTrue(two.text.startswith("Yes."), two.text)   # the APR belongs to 6.66%, not to 6.48%

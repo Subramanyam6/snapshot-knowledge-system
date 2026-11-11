@@ -192,7 +192,7 @@ judgement.
   last independent review found three more, also fixed: a yes/no check that took a dividend rate for
   the APY asked about, two answer checks that were looser than described here, and `as_of` dates
   before the first snapshot answered from it.
-- **Unit tests** (91 of them) on small made-up pages, so they run in a second with no snapshots and
+- **Unit tests** (94 of them) on small made-up pages, so they run in a second with no snapshots and
   no key (the packages in `requirements.txt` installed).
 
 What the bank caught that the practice set had hidden, each fixed in a general way rather than by

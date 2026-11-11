@@ -340,8 +340,11 @@ class RulesAnswerer:
     def _span(match: Match, kind: Optional[str] = None) -> str:
         """What one table pays, in a sentence: 'Share Savings: 0.00% to 0.20% APY (0.20% for $25,000+).'
         `kind` picks the column the member asked about (a "No" to "a 4.00% dividend rate?" gives the
-        dividend rate); otherwise the headline column."""
+        dividend rate). Without one, rows that print two kinds of rate are read out whole: "Is the
+        30-year mortgage rate still 6.04%?" must get the interest rates, not only the APRs beside them."""
         rows, name = match.rows[:MAX_ROWS], match.table.name
+        if kind is None and any(len(r.numbers) > 1 for r in rows):
+            return "%s: %s." % (name, "; ".join(_row_text(r, name=name) for r in rows))
         metric = next((k for r in rows for k in r.numbers if k.startswith(kind)), None) if kind else None
         metric = metric or next((m for m in _HEADLINE_METRICS if any(m in r.numbers for r in rows)), None)
         having = [r for r in rows if metric in r.numbers and len(r.numbers[metric]) == 1]
